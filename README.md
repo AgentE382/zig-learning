@@ -9,6 +9,8 @@
 ## Plan
 
 I plan to follow these tutorials / follow along with these articles:
+1. ~~[Fizz Buzz](https://zig.guide/posts/fizz-buzz)~~
+2. ~~[Exploring Zig by Building and Plotting the Mandelbrot Set](https://rdiachenko.com/posts/zig/exploring-ziglang-with-mandelbrot-set/)~~
 1. [Forking is Cool, or: A Unix Shell in Zig, or: Dave Learns How to Fork](https://ratfactor.com/zig/forking-is-cool)
 2. [Zig Bits 0x4: Building an HTTP client/server from scratch](https://blog.orhun.dev/zig-bits-04/)
 3. [Writing a struct deserializer with Zig metaprogramming](https://nathancraddock.com/blog/deserialization-with-zig-metaprogramming/)

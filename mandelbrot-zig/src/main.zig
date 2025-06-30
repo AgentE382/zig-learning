@@ -28,7 +28,31 @@ pub fn main() !void {
     const pixels = try allocator.alloc(u8, imgSize[0] * imgSize[1]);
     defer allocator.free(pixels);
 
-    render(pixels, imgSize, topLeft, bottomRight);
+    // Calculate the number of rows each thread should process based on CPU count.
+    const threadCount = try std.Thread.getCpuCount();
+    var threads = try allocator.alloc(std.Thread, threadCount);
+    defer allocator.free(threads);
+    const rowsPerBand = imgSize[1] / threadCount + 1;
+
+    // Create and start threads, each processing a segment of the image.
+    for (0..threadCount) |i| {
+        // Determine the portion of the image array this thread will handle.
+        const band = pixels[i * rowsPerBand * imgSize[0] .. @min((i + 1) * rowsPerBand * imgSize[0], pixels.len)];
+        const top = i * rowsPerBand;
+        const height = band.len / imgSize[0];
+        const bandSize = .{ imgSize[0], height };
+
+        const bandTopLeft = pixelToPoint(imgSize, .{ 0, top }, topLeft, bottomRight);
+        const bandBottomRight = pixelToPoint(imgSize, .{ imgSize[0], top + height }, topLeft, bottomRight);
+
+        // Spawn a new thread to process this part of the image.
+        threads[i] = try std.Thread.spawn(.{}, render, .{ band, bandSize, bandTopLeft, bandBottomRight });
+    }
+
+    // Ensure all threads complete their tasks.
+    for (threads) |thread| {
+        thread.join();
+    }
     try writeImage(args[1], pixels, imgSize);
 }
 

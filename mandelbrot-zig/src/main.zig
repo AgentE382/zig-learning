@@ -3,19 +3,33 @@
 //! is to delete this file and start with root.zig instead.
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const allocator = std.heap.page_allocator;
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    if (args.len != 5) {
+        std.log.err("Usage: {s} [IMAGE_FILE] [IMAGE_RESOLUTION] [MANDELBROT_TOP_LEFT] [MANDELBROT_BOTTOM_RIGHT]\nExample: {s} mandelbrot.png 1000x750 -1.20,0.35 -1,0.20", .{ args[0], args[0] });
+        std.process.exit(1);
+    }
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    const imgSize = if (parseArg(usize, args[2], 'x')) |s| s else {
+        std.log.err("Failed to parse image resolution", .{});
+        return;
+    };
+    const topLeft = if (parseComplex(f64, args[3])) |p| p else {
+        std.log.err("Failed to parse top left point", .{});
+        return;
+    };
+    const bottomRight = if (parseComplex(f64, args[4])) |p| p else {
+        std.log.err("Failed to parse bottom right point", .{});
+        return;
+    };
 
-    try bw.flush(); // Don't forget to flush!
+    const pixels = try allocator.alloc(u8, imgSize[0] * imgSize[1]);
+    defer allocator.free(pixels);
+
+    render(pixels, imgSize, topLeft, bottomRight);
+    try writeImage(args[1], pixels, imgSize);
 }
 
 fn squareAdd(c: f64, n: u32) f64 {
@@ -95,6 +109,70 @@ fn render(pixels: []u8, imgSize: [2]usize, pointTopLeft: Complex(f64), pointBott
     }
 }
 
+fn writeImage(filename: []const u8, pixels: []const u8, imgSize: [2]usize) !void {
+    const width = imgSize[0];
+    const height = imgSize[1];
+    const allocator = std.heap.page_allocator;
+
+    // Initialize image object with given pixel data and configuration.
+    const pixelStorage = try zigimg.color.PixelStorage.init(allocator, zigimg.PixelFormat.grayscale8, width * height);
+
+    for (pixels, 0..) |pixel, index| {
+        pixelStorage.grayscale8[index] = zigimg.color.Grayscale8{ .value = pixel };
+    }
+
+    var image = zigimg.Image{
+        .allocator = allocator,
+        .width = width,
+        .height = height,
+        .pixels = pixelStorage,
+    };
+
+    defer image.deinit();
+
+    try image.writeToFilePath(filename, zigimg.Image.EncoderOptions{ .png = .{} });
+}
+
+fn parseArg(comptime T: type, str: []const u8, separator: u8) ?[2]T {
+    if (str.len == 0) return null;
+
+    const index = std.mem.indexOfScalar(u8, str, separator);
+
+    if (index) |i| {
+        const leftStr = str[0..i];
+        const rightStr = str[i + 1 ..];
+
+        const left = parseT(T, leftStr) catch return null;
+        const right = parseT(T, rightStr) catch return null;
+
+        return [2]T{ left, right };
+    } else return null;
+}
+
+fn parseT(comptime T: type, str: []const u8) !T {
+    switch (T) {
+        f32, f64 => {
+            return std.fmt.parseFloat(T, str);
+        },
+        i32, i64, usize => {
+            return std.fmt.parseInt(T, str, 10);
+        },
+        else => {
+            @compileError("Unsupported type for parseT");
+        },
+    }
+}
+
+fn parseComplex(comptime T: type, str: []const u8) ?Complex(T) {
+    const maybePair = parseArg(T, str, ',');
+
+    if (maybePair) |pair| {
+        return Complex(T){ .re = pair[0], .im = pair[1] };
+    } else {
+        return null;
+    }
+}
+
 test "expect pont escapes the Mandelbrot set" {
     const limit = 1000;
     const c = Complex(f64){ .re = 1.0, .im = 1.0 };
@@ -114,6 +192,21 @@ test "expect pixel maps to point on the complex plane" {
     const bottomRight = Complex(f64){ .re = 1.0, .im = -1.0 };
     const result = pixelToPoint(.{ 100, 200 }, .{ 25, 175 }, topLeft, bottomRight);
     try std.testing.expectEqual(Complex(f64){ .re = -0.5, .im = -0.75 }, result);
+}
+
+test "expect argument parsed as proper type" {
+    try std.testing.expectEqual([2]i32{ 100, 200 }, parseArg(i32, "100x200", 'x'));
+    try std.testing.expectEqual([2]f64{ -2.0, 0.5 }, parseArg(f64, "-2.0,0.5", ','));
+    try std.testing.expectEqual(null, parseArg(f64, "x0.2", 'x'));
+    try std.testing.expectEqual(null, parseArg(i32, "ab10,7c", ','));
+    try std.testing.expectEqual(null, parseArg(i32, "7,", ','));
+    try std.testing.expectEqual(null, parseArg(i32,",7", ','));
+    try std.testing.expectEqual(null, parseArg(i32, "", ','));
+}
+
+test "expect string is parsed into complex number" {
+    try std.testing.expectEqual(Complex(f64){ .re = -2.0, .im = 0.5 }, parseComplex(f64, "-2.0,0.5"));
+    try std.testing.expectEqual(null, parseComplex(f64, "-2.0,"));
 }
 
 

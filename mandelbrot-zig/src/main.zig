@@ -101,10 +101,7 @@ fn render(pixels: []u8, imgSize: [2]usize, pointTopLeft: Complex(f64), pointBott
             const point = pixelToPoint(imgSize, .{ col, row }, pointTopLeft, pointBottomRight);
             const escapeCount = escapeTime(point, 255);
 
-            pixels[row * imgSize[0] + col] = switch (escapeCount) {
-                null => 0,
-                else => 255 - escapeCount.?,
-            };
+            pixels[row * imgSize[0] + col] = if (escapeCount) |count| 255 - @as(u8, @intCast(count)) else 0;
         }
     }
 }

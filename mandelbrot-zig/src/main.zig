@@ -1,6 +1,8 @@
 //! By convention, main.zig is where your main function lives in the case that
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const zigimg = @import("zigimg");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -56,12 +58,59 @@ pub fn main() !void {
     try writeImage(args[1], pixels, imgSize);
 }
 
-fn squareAdd(c: f64, n: u32) f64 {
-    var z: f64 = 0;
-    for (0..n) |_| {
-        z = z * z + c;
+fn parseArg(comptime T: type, str: []const u8, separator: u8) ?[2]T {
+    if (str.len == 0) return null;
+
+    const index = std.mem.indexOfScalar(u8, str, separator);
+
+    if (index) |i| {
+        const leftStr = str[0..i];
+        const rightStr = str[i + 1 ..];
+
+        const left = parseT(T, leftStr) catch return null;
+        const right = parseT(T, rightStr) catch return null;
+
+        return [2]T{ left, right };
+    } else return null;
+}
+
+fn parseT(comptime T: type, str: []const u8) !T {
+    switch (T) {
+        f32, f64 => {
+            return std.fmt.parseFloat(T, str);
+        },
+        i32, i64, usize => {
+            return std.fmt.parseInt(T, str, 10);
+        },
+        else => {
+            @compileError("Unsupported type for parseT");
+        },
     }
-    return z;
+}
+
+test "expect argument parsed as proper type" {
+    try std.testing.expectEqual([2]i32{ 100, 200 }, parseArg(i32, "100x200", 'x'));
+    try std.testing.expectEqual([2]f64{ -2.0, 0.5 }, parseArg(f64, "-2.0,0.5", ','));
+    try std.testing.expectEqual(null, parseArg(f64, "x0.2", 'x'));
+    try std.testing.expectEqual(null, parseArg(i32, "ab10,7c", ','));
+    try std.testing.expectEqual(null, parseArg(i32, "7,", ','));
+    try std.testing.expectEqual(null, parseArg(i32,",7", ','));
+    try std.testing.expectEqual(null, parseArg(i32, "", ','));
+}
+
+fn parseComplex(comptime T: type, str: []const u8) ?Complex(T) {
+    const maybePair = parseArg(T, str, ',');
+
+    if (maybePair) |pair| {
+        return Complex(T){ .re = pair[0], .im = pair[1] };
+    } else {
+        return null;
+    }
+}
+
+test "expect string is parsed into complex number" {
+    try std.testing.expectEqual(Complex(f64){ .re = -2.0, .im = 0.5 }, parseComplex(f64, "-2.0,0.5"));
+    try std.testing.expectEqual(null, parseComplex(f64, "-2.0,"));
 }
 
 fn Complex(comptime T: type) type {
@@ -105,6 +154,20 @@ fn escapeTime(c: Complex(f64), limit: usize) ?usize {
     return null;
 }
 
+test "expect pont escapes the Mandelbrot set" {
+    const limit = 1000;
+    const c = Complex(f64){ .re = 1.0, .im = 1.0 };
+    const result = escapeTime(c, limit);
+    try std.testing.expect(result != null);
+}
+
+test "expect point stays within the Mandelbrot set" {
+    const limit = 1000;
+    const c = Complex(f64){ .re = 0.0, .im = 0.0 };
+    const result = escapeTime(c, limit);
+    try std.testing.expect(result == null);
+}
+
 fn pixelToPoint(imgSize: [2]usize, pixel: [2]usize, pointTopLeft: Complex(f64), pointBottomRight: Complex(f64)) Complex(f64) {
     const width = pointBottomRight.re - pointTopLeft.re;
     const height = pointTopLeft.im - pointBottomRight.im;
@@ -117,6 +180,13 @@ fn pixelToPoint(imgSize: [2]usize, pixel: [2]usize, pointTopLeft: Complex(f64), 
         // but in the complex plane, the imaginary part increases as you go up.
         .im = pointTopLeft.im - @as(f64, @floatFromInt(pixel[1])) * height / @as(f64, @floatFromInt(imgSize[1])),
     };
+}
+
+test "expect pixel maps to point on the complex plane" {
+    const topLeft = Complex(f64){ .re = -1.0, .im = 1.0 };
+    const bottomRight = Complex(f64){ .re = 1.0, .im = -1.0 };
+    const result = pixelToPoint(.{ 100, 200 }, .{ 25, 175 }, topLeft, bottomRight);
+    try std.testing.expectEqual(Complex(f64){ .re = -0.5, .im = -0.75 }, result);
 }
 
 fn render(pixels: []u8, imgSize: [2]usize, pointTopLeft: Complex(f64), pointBottomRight: Complex(f64)) void {
@@ -154,83 +224,6 @@ fn writeImage(filename: []const u8, pixels: []const u8, imgSize: [2]usize) !void
     try image.writeToFilePath(filename, zigimg.Image.EncoderOptions{ .png = .{} });
 }
 
-fn parseArg(comptime T: type, str: []const u8, separator: u8) ?[2]T {
-    if (str.len == 0) return null;
-
-    const index = std.mem.indexOfScalar(u8, str, separator);
-
-    if (index) |i| {
-        const leftStr = str[0..i];
-        const rightStr = str[i + 1 ..];
-
-        const left = parseT(T, leftStr) catch return null;
-        const right = parseT(T, rightStr) catch return null;
-
-        return [2]T{ left, right };
-    } else return null;
-}
-
-fn parseT(comptime T: type, str: []const u8) !T {
-    switch (T) {
-        f32, f64 => {
-            return std.fmt.parseFloat(T, str);
-        },
-        i32, i64, usize => {
-            return std.fmt.parseInt(T, str, 10);
-        },
-        else => {
-            @compileError("Unsupported type for parseT");
-        },
-    }
-}
-
-fn parseComplex(comptime T: type, str: []const u8) ?Complex(T) {
-    const maybePair = parseArg(T, str, ',');
-
-    if (maybePair) |pair| {
-        return Complex(T){ .re = pair[0], .im = pair[1] };
-    } else {
-        return null;
-    }
-}
-
-test "expect pont escapes the Mandelbrot set" {
-    const limit = 1000;
-    const c = Complex(f64){ .re = 1.0, .im = 1.0 };
-    const result = escapeTime(c, limit);
-    try std.testing.expect(result != null);
-}
-
-test "expect point stays within the Mandelbrot set" {
-    const limit = 1000;
-    const c = Complex(f64){ .re = 0.0, .im = 0.0 };
-    const result = escapeTime(c, limit);
-    try std.testing.expect(result == null);
-}
-
-test "expect pixel maps to point on the complex plane" {
-    const topLeft = Complex(f64){ .re = -1.0, .im = 1.0 };
-    const bottomRight = Complex(f64){ .re = 1.0, .im = -1.0 };
-    const result = pixelToPoint(.{ 100, 200 }, .{ 25, 175 }, topLeft, bottomRight);
-    try std.testing.expectEqual(Complex(f64){ .re = -0.5, .im = -0.75 }, result);
-}
-
-test "expect argument parsed as proper type" {
-    try std.testing.expectEqual([2]i32{ 100, 200 }, parseArg(i32, "100x200", 'x'));
-    try std.testing.expectEqual([2]f64{ -2.0, 0.5 }, parseArg(f64, "-2.0,0.5", ','));
-    try std.testing.expectEqual(null, parseArg(f64, "x0.2", 'x'));
-    try std.testing.expectEqual(null, parseArg(i32, "ab10,7c", ','));
-    try std.testing.expectEqual(null, parseArg(i32, "7,", ','));
-    try std.testing.expectEqual(null, parseArg(i32,",7", ','));
-    try std.testing.expectEqual(null, parseArg(i32, "", ','));
-}
-
-test "expect string is parsed into complex number" {
-    try std.testing.expectEqual(Complex(f64){ .re = -2.0, .im = 0.5 }, parseComplex(f64, "-2.0,0.5"));
-    try std.testing.expectEqual(null, parseComplex(f64, "-2.0,"));
-}
-
-
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
     defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
@@ -248,6 +241,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");
-const zigimg = @import("zigimg");

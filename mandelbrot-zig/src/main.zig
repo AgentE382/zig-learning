@@ -21,15 +21,15 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const imgSize = if (parseArg(usize, args[2], 'x')) |s| s else {
+    const imgSize = parseArg(usize, args[2], 'x') orelse {
         std.log.err("Failed to parse image resolution", .{});
         return;
     };
-    const topLeft = if (parseComplex(f64, args[3])) |p| p else {
+    const topLeft = parseComplex(f64, args[3]) orelse {
         std.log.err("Failed to parse top left point", .{});
         return;
     };
-    const bottomRight = if (parseComplex(f64, args[4])) |p| p else {
+    const bottomRight = parseComplex(f64, args[4]) orelse {
         std.log.err("Failed to parse bottom right point", .{});
         return;
     };
